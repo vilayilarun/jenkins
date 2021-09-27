@@ -1,0 +1,9 @@
+versions: '3'
+services:
+  myapp:
+   build:
+    context: .
+    dockerfile: Dockerfile 
+    image: 192.168.179.131:8082/myapp:1.0
+    ports:
+     - 80:80

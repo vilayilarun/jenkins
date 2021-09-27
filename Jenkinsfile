@@ -1,23 +1,18 @@
+def gv
 pipeline{
     agent any
     stages{
-        stage("Testing the code"){
+        stage("Loading groovi script"){
            steps{
               script{
-              echo "testing the code on $BRANCH_NAME."
+              gv = load "script.groovy"
               }
            }
         }
-        stage("building the code "){
-            when{
-              expression{
-                BRANCH_NAME == 'master'
-              }
-            }
+        stage("Testing the code"){
             steps{
                 script{
-                    echo 'Building the jar file'
-                    //sh 'mvn package'
+                gv.testapp()
                 }
             }
         }
@@ -29,9 +24,7 @@ pipeline{
             }
             steps{
                 script{
-                   // gv.imagebuild()
-                   //sh 'docker build -t 192.168.179.131:8083/java-manen-app:1.1 .'
-                  echo "Building the docker image" 
+                   gv.buildapp()
                 }
             }
         }
@@ -43,9 +36,21 @@ pipeline{
             }
             steps{
                 script{
-                   echo "Depoying the build"
+                   gv.pushapp()
                 }
             }
         }
-    }
+       stage("Deploy the image on production"){
+            when{
+              expression{
+               BRANCH_NAME == 'master'
+           }
+          } 
+           steps{
+              script{
+               gv.deployapp()
+             }  
+          }  
+         }
+     
 }
