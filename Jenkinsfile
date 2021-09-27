@@ -1,6 +1,5 @@
 pipeline{
     agent any
-    }
     stages{
         stage("Testing the code"){
            steps{
@@ -48,5 +47,5 @@ pipeline{
                 }
             }
         }
+    }
 }
-
