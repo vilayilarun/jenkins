@@ -3,7 +3,8 @@ def testapp() {
 }
 
 def buildapp() {
-    sh 'docker-compose -d --build'
+    //sh 'docker-compose -d --build'
+    sh 'docker build -t 192.168.179.131:8083/myapp:1.0 .'
 }
 
 def pushapp() {
