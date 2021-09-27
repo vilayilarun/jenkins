@@ -3,7 +3,7 @@ def testapp() {
 }
 
 def buildapp() {
-    sh 'docker-compose -d --build "
+    sh 'docker-compose -d --build'
 }
 
 def pushapp() {
