@@ -19,10 +19,10 @@ pipeline{
             }
         }
         stage("Build docker image"){
-             when{
-              expression{
-                BRANCH_NAME == 'master'
-              }
+             //when{
+              //expression{
+              //  BRANCH_NAME == 'master'
+              //}
             }
             steps{
                 script{
@@ -31,10 +31,10 @@ pipeline{
             }
         }
         stage("push the image to nexus repository"){
-             when{
-              expression{
-                BRANCH_NAME == 'master'
-              }
+             //when{
+             // expression{
+               // BRANCH_NAME == 'master'
+              //}
             }
             steps{
                 script{
