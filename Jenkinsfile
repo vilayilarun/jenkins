@@ -23,7 +23,7 @@ pipeline{
               //expression{
               //  BRANCH_NAME == 'master'
               //}
-            }
+            //}
             steps{
                 script{
                    buildapp()
@@ -35,7 +35,7 @@ pipeline{
              // expression{
                // BRANCH_NAME == 'master'
               //}
-            }
+            //}
             steps{
                 script{
                    pushapp()
