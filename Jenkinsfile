@@ -38,7 +38,7 @@ pipeline{
             //}
             steps{
                 script{
-                   pushapp()
+                   pushapp '192.168.179.131:8083/myapp:1.1'
                 }
             }
         }
