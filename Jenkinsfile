@@ -4,6 +4,8 @@ def gv
 pipeline{
     agent any
     stages{
+        env.IMAGE = input message: 'please enter the image tag with repository', parameters: [string(defaultValue: '',
+        description: '', name: 'Image name')]
         stage("Loading groovi script"){
            steps{
               script{
@@ -26,7 +28,7 @@ pipeline{
             //}
             steps{
                 script{
-                   buildapp '192.168.179.131:8083/myapp:1.1'
+                   buildapp "${env.IMAGE}"
                 }
             }
         }
@@ -38,7 +40,7 @@ pipeline{
             //}
             steps{
                 script{
-                   pushapp '192.168.179.131:8083/myapp:1.1'
+                    pushapp "${env.IMAGE}"
                 }
             }
         }
