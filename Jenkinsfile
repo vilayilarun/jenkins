@@ -6,28 +6,28 @@ library identifier: 'jenkins-shared-lib@master', retriever: modernSCM(
     ]
 )
 // @Library('jenkins-shared-lib')
-def gv
+// def gv
 pipeline{
     agent any
     environment {
         IMAGE = '35.200.245.75:8083/myapp:1.0.0'
     }
     
-    stages{
-        stage("Loading groovi script"){
-           steps{
-              script{
-              gv = load "script.groovy"
-              }
-           }
-        }
-        stage("Testing the code"){
-            steps{
-                script{
-                gv.testapp()
-                }
-            }
-        }
+    // stages{
+       // stage("Loading groovi script"){
+         //  steps{
+           //   script{
+             // gv = load "script.groovy"
+           //   }
+          // }
+       // }
+       // stage("Testing the code"){
+         //   steps{
+          //      script{
+           //     gv.testapp()
+            //    }
+           // }
+       // }
         stage("Build docker image"){
              //when{
               //expression{
