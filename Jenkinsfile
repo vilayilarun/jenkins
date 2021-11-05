@@ -47,14 +47,16 @@ pipeline{
             }
         }
        stage("Deploy the image on production"){
-            when{
-              expression{
-               BRANCH_NAME == 'master'
-           }
-          } 
+           // when{
+             // expression{
+              // BRANCH_NAME == 'master'
+           //}
+          //} 
            steps{
               script{
-               gv.deployapp()
+                  env.IMAGE = input message: 'please enter the image tag with repository', parameters: [string(defaultValue: '',
+        description: '', name: 'Image name')]
+                  deployapp "${env.IMAGE}"
              }  
           }  
          }
