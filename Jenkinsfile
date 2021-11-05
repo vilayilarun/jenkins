@@ -13,7 +13,7 @@ pipeline{
         IMAGE = '35.200.245.75:8083/myapp:1.0.0'
     }
     
-    // stages{
+    stages{
        // stage("Loading groovi script"){
          //  steps{
            //   script{
@@ -70,4 +70,5 @@ pipeline{
              }  
           }  
          }
+    }
 }
