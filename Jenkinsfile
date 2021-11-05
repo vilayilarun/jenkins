@@ -9,6 +9,10 @@ library identifier: 'jenkins-shared-lib@master', retriever: modernSCM(
 def gv
 pipeline{
     agent any
+    environment {
+        IMAGE = '35.200.245.75:8083/myapp:1.0.0'
+    }
+    
     stages{
         stage("Loading groovi script"){
            steps{
@@ -32,7 +36,7 @@ pipeline{
             //}
             steps{
                 script{
-                   env.IMAGE = input message: 'please enter the image tag with repository', parameters: [string(defaultValue: '',
+                   // env.IMAGE = input message: 'please enter the image tag with repository', parameters: [string(defaultValue: '',
         description: '', name: 'Image name')]
                    buildapp "${env.IMAGE}"
                 }
@@ -46,7 +50,7 @@ pipeline{
             //}
             steps{
                 script{
-                    env.IMAGE = input message: 'please enter the image tag with repository', parameters: [string(defaultValue: '',
+                   //  env.IMAGE = input message: 'please enter the image tag with repository', parameters: [string(defaultValue: '',
         description: '', name: 'Image name')]
                     pushapp "${env.IMAGE}"
                 }
@@ -60,7 +64,7 @@ pipeline{
           //} 
            steps{
               script{
-                  env.IMAGE = input message: 'please enter the image tag with repository', parameters: [string(defaultValue: '',
+                //  env.IMAGE = input message: 'please enter the image tag with repository', parameters: [string(defaultValue: '',
         description: '', name: 'Image name')]
                   deployapp "${env.IMAGE}"
              }  
