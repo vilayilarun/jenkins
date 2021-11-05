@@ -9,7 +9,7 @@ library identifier: 'jenkins-shared-lib@master', retriever: modernSCM(
 // def gv
 pipeline{
     agent any
-    environment {
+    environment{
         IMAGE = '35.200.245.75:8083/myapp:1.0.0'
     }
     
