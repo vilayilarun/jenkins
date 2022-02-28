@@ -31,7 +31,7 @@ pipeline{
         stage("push the image to nexus repository"){
              when{
               expression{
-                BRANCH_NAME == 'master'
+                 ${env.BRANCH_NAME} == 'master'
               }
             }
             steps{
@@ -43,7 +43,7 @@ pipeline{
        stage("Deploy the image on production"){
             when{
               expression{
-               BRANCH_NAME == 'master'
+                ${env.BRANCH_NAME} == 'master'
            }
           } 
            steps{
