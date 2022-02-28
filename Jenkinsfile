@@ -19,7 +19,7 @@ pipeline{
         stage("Build docker image"){
              when{
               expression{
-                BRANCH_NAME == 'master'
+                env.BRANCH_NAME == 'master'
               }
             }
             steps{
