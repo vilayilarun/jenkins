@@ -19,7 +19,7 @@ pipeline{
         stage("Build docker image"){
              when{
               expression{
-                  BRANCH_NAME == 'master'
+                  BRANCH_NAME == 'cicd'
               }
             }
             steps{
@@ -28,10 +28,22 @@ pipeline{
                 }
             }
         }
+        stage("upadte k8s manifest"){
+            when{
+                expression{
+                    BRANCH_NAME == 'cicd'
+                }
+            }
+            steps{
+                script{
+                    gv.update_manifest()
+                }
+            }
+        }
         stage("push the image to nexus repository"){
              when{
               expression{
-                 BRANCH_NAME == 'master'
+                 BRANCH_NAME == 'cicd'
               }
             }
             steps{
@@ -43,7 +55,7 @@ pipeline{
        stage("Deploy the image on production"){
             when{
               expression{
-                BRANCH_NAME == 'master'
+                BRANCH_NAME == 'cicd'
            }
           } 
            steps{
