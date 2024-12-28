@@ -1,3 +1,4 @@
+def gv
 pipeline {
     agent any
     parameters {
@@ -181,9 +182,8 @@ pipeline {
                         ["name": "eSIM-IOT-CORE-SERVER", "dockerfile": "Dockerfile", "image": "esim-iot-core-server"],
                         ["name": "eSIM-IOT-DB-JOB", "dockerfile": "Dockerfile", "image": "esim-iot-db-job"]
                     ]
-                    
                     // Process each site in the selected order
-                    def selectedSites = env.SITE_ORDER.split(',')
+                    def selectedSites = env.DEPLOY_SITE_ORDER.split(',')
                     
                     for (def site in selectedSites) {
                         // Build and push images for each site
