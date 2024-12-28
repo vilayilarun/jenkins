@@ -187,8 +187,11 @@ pipeline {
                     
                     for (def site in selectedSites) {
                         // Build and push images for each site
+                        def dockerRepo = env."DOCKER_REPO_${site.toUpperCase()}"
+                        if (!dockerRepo) {
+                            error "Docker repository for site '${site}' (DOCKER_REPO_${site.toUpperCase()}) is not defined. Please configure it in the environment."
+                        }
                         echo "Building images for ${site} site"
-                        
                         for (def repo in repositories) {
                             dir(repo.name) {
                                 def changes = currentBuild.description.contains("${repo.name}")
@@ -203,9 +206,9 @@ pipeline {
                                     try {
                                         // Use buildArgs if defined, otherwise set it to an empty string
                                         def buildArgs = repo.buildArgs ? repo.buildArgs : ""
-                                        docker.build("${env."DOCKER_REPO_${site}"}:${repo.image}:${env.IMAGE_TAG}", "-f ${repo.dockerfile} ${buildArgs} .")
+                                        docker.build("${dockerRepo}:${repo.image}:${env.IMAGE_TAG}", "-f ${repo.dockerfile} ${buildArgs} .")
                                         env."${repo.name}_BUILD_SUCCESS" = true
-                                        docker.push("${env."DOCKER_REPO_${site}"}:${repo.image}:${env.IMAGE_TAG}")
+                                        docker.push("${dockerRepo}:${repo.image}:${env.IMAGE_TAG}")
                                     } catch (Exception e) {
                                         echo "Image build for ${repo.image} in ${site} failed: ${e.getMessage()}"
                                         env."${repo.name}_BUILD_SUCCESS" = false
