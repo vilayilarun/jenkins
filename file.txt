@@ -1,0 +1,142 @@
+pipeline {
+    agent any
+    environment {
+        DOCKER_REPO = "your-docker-repo"
+        IMAGE_TAG = "latest"
+        EMAIL_RECIPIENTS = "stakeholders@example.com"
+    }
+    stages {
+        stage("SCM Checkout") {
+            steps {
+                script {
+                    def repositories = [
+                        ["name": "frontend", "url": "https://gitlab.workz.com:31443/workz/frontend.git"],
+                        ["name": "backend", "url": "https://gitlab.workz.com:31443/workz/backend.git"]
+                    ]
+
+                    for (def repo in repositories) {
+                        dir(repo.name) {
+                            checkout([$class: 'GitSCM', branches: [[name: '*/main']], userRemoteConfigs: [[credentialsId: 'gitlab-automation', url: repo.url]]])
+                        }
+                    }
+                }
+            }
+        }
+
+        stage("Image Build") {
+            steps {
+                script {
+                    def repositories = [
+                        ["name": "frontend", "images": [
+                            ["tag": "frontend-dubai", "buildArgs": "--build-arg LOCATION=dubai"],
+                            ["tag": "frontend-us", "buildArgs": "--build-arg LOCATION=us"],
+                            ["tag": "frontend-france", "buildArgs": "--build-arg LOCATION=france"]
+                        ]],
+                        ["name": "backend", "images": [
+                            ["tag": "backend", "buildArgs": ""]
+                        ]]
+                    ]
+
+                    for (def repo in repositories) {
+                        dir(repo.name) {
+                            for (def image in repo.images) {
+                                echo "Building image ${DOCKER_REPO}/${image.tag}:${IMAGE_TAG} for ${repo.name}..."
+                                sh "docker build -t ${DOCKER_REPO}/${image.tag}:${IMAGE_TAG} ${image.buildArgs} ."
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        stage("Update Values Files") {
+            steps {
+                script {
+                    def dubaiImage = "${DOCKER_REPO}/frontend-dubai:${IMAGE_TAG}"
+                    def usImage = "${DOCKER_REPO}/frontend-us:${IMAGE_TAG}"
+                    def franceImage = "${DOCKER_REPO}/frontend-france:${IMAGE_TAG}"
+                    def backendImage = "${DOCKER_REPO}/backend:${IMAGE_TAG}"
+
+                    ansiblePlaybook playbook: 'update-values.yml', extras: """
+                        -e dubai_image=${dubaiImage}
+                        -e us_image=${usImage}
+                        -e france_image=${franceImage}
+                        -e backend_image=${backendImage}
+                    """
+                }
+            }
+        }
+
+        stage("Send Email for Initial Deployment") {
+            steps {
+                emailext(
+                    subject: "Select Deployment Location",
+                    body: """
+                        The images are ready for deployment:
+                        - Dubai
+                        - US
+                        - France
+                        
+                        Please reply with the location to deploy first.
+                    """,
+                    to: "${EMAIL_RECIPIENTS}"
+                )
+            }
+        }
+
+        stage("Deploy Initial Selection") {
+            input {
+                message "Choose the first location to deploy:"
+                parameters {
+                    choice(name: 'LOCATION', choices: ['dubai', 'us', 'france'], description: 'Select deployment location.')
+                }
+            }
+            steps {
+                script {
+                    ansiblePlaybook playbook: 'deploy.yml', extras: "-e location=${LOCATION}"
+                }
+            }
+        }
+
+        stage("Send Email for Remaining Deployments") {
+            steps {
+                emailext(
+                    subject: "Proceed with Remaining Deployments",
+                    body: """
+                        The initial deployment is complete.
+
+                        Please reply to proceed with the next location or cancel remaining deployments.
+                    """,
+                    to: "${EMAIL_RECIPIENTS}"
+                )
+            }
+        }
+
+        stage("Deploy Remaining Locations") {
+            steps {
+                input {
+                    message "Proceed with next deployments or cancel:"
+                    parameters {
+                        choice(name: 'ACTION', choices: ['proceed', 'cancel'], description: 'Select action.')
+                    }
+                }
+                script {
+                    if (ACTION == 'proceed') {
+                        def remainingLocations = ['dubai', 'us', 'france'] - LOCATION
+                        for (def loc in remainingLocations) {
+                            ansiblePlaybook playbook: 'deploy.yml', extras: "-e location=${loc}"
+                        }
+                    } else {
+                        echo "Remaining deployments canceled."
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            cleanWs()
+        }
+    }
+}

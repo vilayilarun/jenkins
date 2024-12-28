@@ -1,0 +1,123 @@
+pipeline {
+    agent any
+    environment {
+        DOCKER_REPO_DUBAI = "nexus:8080"
+        DOCKER_REPO_US = "earuop-us"
+        DOCKER_REPO_FRANCE = "france-registry"
+        DOCKER_REPO_BACKEND = "central-registry"
+        IMAGE_TAG = "${env.BUILD_ID}"
+        HELM_CHART = "frontend-helm-chart"
+        ANSIBLE_PLAYBOOK = "deploy.yml"
+    }
+
+    stages {
+        stage('SCM Checkout') {
+            steps {
+                checkout([$class: 'GitSCM', branches: [[name: '*/main']], 
+                    userRemoteConfigs: [[url: 'https://git.example.com/frontend.git']]])
+            }
+        }
+
+        stage('Build Frontend Images') {
+            steps {
+                script {
+                    def locations = [
+                        ["name": "Dubai", "repo": env.DOCKER_REPO_DUBAI],
+                        ["name": "US", "repo": env.DOCKER_REPO_US],
+                        ["name": "France", "repo": env.DOCKER_REPO_FRANCE]
+                    ]
+
+                    for (def loc in locations) {
+                        sh "docker build -t ${loc.repo}/frontend:${IMAGE_TAG} --build-arg LOCATION=${loc.name} ."
+                        sh "docker push ${loc.repo}/frontend:${IMAGE_TAG}"
+                    }
+                }
+            }
+        }
+
+        stage('Build Backend Image') {
+            steps {
+                script {
+                    sh "docker build -t ${env.DOCKER_REPO_BACKEND}/backend:${IMAGE_TAG} ."
+                    sh "docker push ${env.DOCKER_REPO_BACKEND}/backend:${IMAGE_TAG}"
+                }
+            }
+        }
+
+        stage('Image Scan') {
+            steps {
+                script {
+                    def images = [
+                        "${env.DOCKER_REPO_DUBAI}/frontend:${IMAGE_TAG}",
+                        "${env.DOCKER_REPO_US}/frontend:${IMAGE_TAG}",
+                        "${env.DOCKER_REPO_FRANCE}/frontend:${IMAGE_TAG}",
+                        "${env.DOCKER_REPO_BACKEND}/backend:${IMAGE_TAG}"
+                    ]
+                    
+                    for (image in images) {
+                        sh "trivy image --exit-code 1 --severity HIGH,CRITICAL ${image}"
+                    }
+                }
+            }
+        }
+
+        stage('Update Custom Values') {
+            steps {
+                script {
+                    def locations = ["Dubai", "US", "France"]
+                    
+                    for (location in locations) {
+                        sh "sed -i 's|image:.*|image: ${env.DOCKER_REPO_${location.toUpperCase()}}/frontend:${IMAGE_TAG}|' custom-values-${location.toLowerCase()}.yaml"
+                    }
+                }
+            }
+        }
+
+        stage('Deploy to Selected Site') {
+            steps {
+                script {
+                    emailext(
+                        subject: "Deployment Selection",
+                        body: "Please choose a location to deploy first: Dubai, US, or France.",
+                        recipientProviders: [[$class: 'DevelopersRecipientProvider']],
+                        replyTo: 'team@example.com'
+                    )
+
+                    def selectedSite = input message: 'Select deployment site:', parameters: [choice(name: 'SITE', choices: 'Dubai\nUS\nFrance', description: 'Deployment Site')]
+
+                    sh "ansible-playbook ${ANSIBLE_PLAYBOOK} -e site=${selectedSite} -e image_tag=${IMAGE_TAG}"
+
+                    emailext(
+                        subject: "Deployment to ${selectedSite} Completed",
+                        body: "Deployment to ${selectedSite} is complete. Would you like to proceed with the next site or cancel?",
+                        recipientProviders: [[$class: 'DevelopersRecipientProvider']],
+                        replyTo: 'team@example.com'
+                    )
+
+                    def nextStep = input message: 'Proceed with next site?', parameters: [choice(name: 'ACTION', choices: 'Proceed\nCancel', description: 'Next Action')]
+
+                    if (nextStep == 'Proceed') {
+                        def remainingSites = ["Dubai", "US", "France"].findAll { it != selectedSite }
+
+                        for (site in remainingSites) {
+                            sh "ansible-playbook ${ANSIBLE_PLAYBOOK} -e site=${site} -e image_tag=${IMAGE_TAG}"
+                            emailext(
+                                subject: "Deployment to ${site} Completed",
+                                body: "Deployment to ${site} is complete. Would you like to proceed with the next site or cancel?",
+                                recipientProviders: [[$class: 'DevelopersRecipientProvider']],
+                                replyTo: 'team@example.com"
+                            )
+                            def action = input message: 'Proceed with next site?', parameters: [choice(name: 'ACTION', choices: 'Proceed\nCancel', description: 'Next Action')]
+                            if (action == 'Cancel') {
+                                echo "Deployment process canceled."
+                                break
+                            }
+                        }
+                    } else {
+                        echo "Deployment process canceled by user."
+                    }
+                }
+            }
+        }
+    }
+}

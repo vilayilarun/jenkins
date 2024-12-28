@@ -1,0 +1,638 @@
+// Prodution pipeline
+def gv
+
+pipeline {
+    agent any
+    parameters {
+        string(name: 'ENV', description: 'Environment Variable for Backend API', defaultValue: "/api")
+    }
+
+    environment {
+        DOCKER_REPO = "europe-west3-docker.pkg.dev/workz-eim/esim-iot"
+        GIT_BRANCH = 'main'
+        JAVA_OPTS = '-Dhudson.model.ParametersAction.keepUndefinedParameters=true'
+        TIMESTAMP = new Date().format("yyyyMMddHHmmss", TimeZone.getTimeZone("UTC"))
+        IMAGE_TAG = "${env.GIT_BRANCH}-${env.BUILD_ID}"
+        GIT_REPO_URL = "https://gitlab.workz.com:31443/workz/esim-deployment"
+        REPO_DIR = "${env.WORKSPACE}"
+    }
+
+    stages {
+        stage('Check for Running Builds') {
+            steps {
+                script {
+                    def currentJob = Jenkins.instance.getItemByFullName(env.JOB_NAME)
+                    for (build in currentJob.builds) {
+                        if (build.isBuilding() && build != currentBuild.rawBuild) {
+                            echo "Aborting running build #${build.number}"
+                            build.doKill()
+                        }
+                    }
+                }
+            }
+        }
+        // stage('Clean workspace'){
+        //     steps{
+        //         script{
+        //             deleteDir()
+        //         }
+        //     }
+        // }
+        stage('Approval to Begin ') {
+            steps {
+                script {
+                    def emailSubject = "eSIM-IOT ${env.GIT_BRANCH} Pipeline begin Approval Request"
+                    def emailBody = """
+                        Hello,<br><br>
+
+                        We kindly request your approval to initiate the CI/CD pipeline for the latest changes.
+
+                        Please select the site to build first from the options below:<br><br>
+                        <a href='${BUILD_URL}input'>Click here to approve or reject</a> <br><br>
+                        
+                        Thank you
+
+                        Jenkins
+                    """
+
+                    emailext(
+                        subject: emailSubject,
+                        body: emailBody,
+                        to: 'it.support@workz.com',
+                        mimeType: 'text/html'
+                    )
+                }
+            }
+        }
+
+        stage('Approval wait') {
+            steps {
+                script {
+                    def approval = input(
+                        id: 'deploymentApproval',
+                        message: 'Please approve or reject the CI/CD and select build order:',
+                        parameters: [
+                            choice(name: 'APPROVAL', choices: 'Approve\nReject', description: 'Approve or Reject'),
+                            choice(name: 'SITE_ORDER', choices: ['Dubai', 'US', 'France'], description: 'Select the first site to build')
+                        ]
+                    )
+
+                    if (approval.APPROVAL == 'Approve') {
+                        // Capture the user's selected site order and dynamically set SITE_ORDER
+                        env.SITE_ORDER = approval.SITE_ORDER + ",US,France" // Example, you can customize order logic
+                        resultIsApproved = true
+                    } else {
+                        resultIsApproved = false
+                        def emailSubject = "Jenkins Job eSIM-IOT ${env.BUILD_ID} Rejected"
+                        def emailBody = """
+                        <html>
+                            <head>
+                            <style>
+                                body {
+                                    font-family: Arial, sans-serif;
+                                    margin: 20px;
+                                }
+                                h1 {
+                                    color: #333;
+                                }
+                            </style>
+                            </head>
+                            <body>
+                                <h1>Ohoo!<br><br> </h1>
+                                Hello All,<br><br> 
+                                The Jenkins Job ${env.BUILD_ID} for eSIM-IOT has been rejected by the approver.<br><br> 
+                                IT Team
+                            </body>
+                        </html>
+                        """
+                        emailext(
+                            subject: emailSubject,
+                            body: emailBody,
+                            to: 'it.support@workz.com', 
+                            mimeType: 'text/html'
+                        )
+                    }
+                }
+            }
+        }
+
+        stage("Load Groovy script") {
+            when{
+                expression { resultIsApproved }
+            }
+            steps {
+                script {
+                    echo "Loading the groovy script"
+                    gv = load "script.groovy"
+                }
+            }
+        }
+        stage("Retrive previous build_id") {
+            steps {
+                script {
+                    def previousBuild = currentBuild.previousBuild
+                    if (previousBuild != null) {
+                        def previousBuildId = previousBuild.id
+                        echo "Previous Build ID: ${previousBuildId}"
+                        env.PREVIOUS_BUILD_ID = previousBuildId
+                    } else {
+                        echo "No previous build found"
+                        env.PREVIOUS_BUILD_ID = "N/A"
+                    }                    
+                }
+            }
+        }
+        stage("SCM Checkout") {
+            steps {
+                script {
+                    def repositories = [
+                        ["name": "eSIM-IoT-frontend", "url": "https://gitlab.workz.com:31443/workz/eSIM-IoT-frontend.git"],
+                        ["name": "eSIM-IOT-API-BACKEND", "url": "https://gitlab.workz.com:31443/workz/esim-iot-backend.git"],
+                        ["name": "eSIM-IOT-CORE-SERVER", "url": "https://gitlab.workz.com:31443/workz/LPAe-IOT-Server.git"],
+                        ["name": "eSIM-IOT-DB-JOB", "url": "https://gitlab.workz.com:31443/workz/esim-iot-db-job.git"],
+                        ["name": "eSIM-IOT-API-WORKER", "url": "https://gitlab.workz.com:31443/workz/esim-iot-backend.git"],
+                        ["name": "eSIM-IOT-API-NGINX-BACKEND", "url": "https://gitlab.workz.com:31443/workz/esim-iot-backend.git"]
+                    ]
+                    
+                    for (def repo in repositories) {
+                        dir(repo.name) {
+                            def changes = checkout([$class: 'GitSCM', branches: [[name: '*/main']], userRemoteConfigs: [[credentialsId: 'gitlab-automation', url: repo.url]]]).GIT_COMMIT
+                            if (changes != null && changes != '') {
+                                currentBuild.description = "${repo.name} changes detected"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // stage("SCM Checkout and Gitleaks Scan") {
+        //     steps {
+        //         script {
+        //             def repositories = [
+        //                 ["name": "eSIM-IoT-frontend", "url": "https://gitlab.workz.com:31443/workz/eSIM-IoT-frontend.git"],
+        //                 ["name": "eSIM-IOT-API-BACKEND", "url": "https://gitlab.workz.com:31443/workz/esim-iot-backend.git"],
+        //                 ["name": "eSIM-IOT-CORE-SERVER", "url": "https://gitlab.workz.com:31443/workz/LPAe-IOT-Server.git"],
+        //                 ["name": "eSIM-IOT-DB-JOB", "url": "https://gitlab.workz.com:31443/workz/esim-iot-db-job.git"],
+        //                 ["name": "eSIM-IOT-API-WORKER", "url": "https://gitlab.workz.com:31443/workz/esim-iot-backend.git"],
+        //                 ["name": "eSIM-IOT-API-NGINX-BACKEND", "url": "https://gitlab.workz.com:31443/workz/esim-iot-backend.git"]
+        //             ]
+
+        //             boolean issuesDetected = false
+        //             def detectedRepos = []
+        //             def leaksDetails = ""
+
+        //             for (def repo in repositories) {
+        //                 dir(repo.name) {
+        //                     // Checkout the repository
+        //                     checkout([$class: 'GitSCM', branches: [[name: '*/main']], userRemoteConfigs: [[credentialsId: 'gitlab-automation', url: repo.url]]])
+        //                     echo "${repo.name} checked out successfully."
+
+        //                     // Run Gitleaks and capture the exit status
+        //                     def gitleaksResult = sh(script: "gitleaks detect --source . --report-path=gitleaks-${repo.name}-report.json --report-format=json", returnStatus: true)
+
+        //                     // Archive the Gitleaks report
+        //                     archiveArtifacts artifacts: "gitleaks-${repo.name}-report.json", allowEmptyArchive: true
+
+        //                     // If Gitleaks finds leaks, collect details for the email
+        //                     if (gitleaksResult != 0) {
+        //                         issuesDetected = true
+        //                         detectedRepos.add(repo.name)
+
+        //                         def reportExists = fileExists("gitleaks-${repo.name}-report.json")
+        //                         if (reportExists) {
+        //                             def reportContent = readFile("gitleaks-${repo.name}-report.json")
+        //                             leaksDetails += "Repository: ${repo.name}\n"
+        //                             leaksDetails += "Leaks Detected:\n${reportContent}\n\n"
+        //                         } else {
+        //                             leaksDetails += "Repository: ${repo.name}\nNo report file found\n\n"
+        //                         }
+
+        //                         echo "Gitleaks found secrets in ${repo.name}! Check the report."
+        //                     } else {
+        //                         echo "No secrets found by Gitleaks in ${repo.name}"
+        //                     }
+        //                 }
+        //             }
+
+        //             // If issues are detected, stop the pipeline and send an email
+        //             if (issuesDetected) {
+        //                 def repoList = detectedRepos.join(", ")
+        //                 error "Gitleaks found issues in the following repositories: ${repoList}. Please review the reports."
+
+        //                 // Send email notification with details of the leaks
+        //                 emailext (
+        //                     subject: "Gitleaks Security Issues Detected",
+        //                     body: """
+        //                     Gitleaks has found security issues in the following repositories:
+                            
+        //                     ${repoList}
+                            
+        //                     Details of the leaks:
+                            
+        //                     ${leaksDetails}
+        //                     """,
+        //                     to: "it.dev@workz.com, it.support@workz.com"
+        //                 )
+        //             }
+        //         }
+        //     }
+        // }
+        stage("Image Build") {
+            steps {
+                script {
+                    def repositories = [
+                        ["name": "eSIM-IoT-frontend", "dockerfile": "Dockerfile", "image": "esim-iot-nginx-frontend",  "buildArgs": "--build-arg ENV_BACKEND_API_URL=${env.ENV}"],
+                        ["name": "eSIM-IOT-API-BACKEND", "dockerfile": "Dockerfile", "image": "esim-iot-api-backend"],
+                        ["name": "eSIM-IOT-API-WORKER", "dockerfile": "Dockerfile_worker", "image": "esim-iot-api-worker"],
+                        ["name": "eSIM-IOT-API-NGINX-BACKEND", "dockerfile": "Dockerfile_nginx", "image": "esim-iot-api-nginx-backend"],
+                        ["name": "eSIM-IOT-CORE-SERVER", "dockerfile": "Dockerfile", "image": "esim-iot-core-server"],
+                        ["name": "eSIM-IOT-DB-JOB", "dockerfile": "Dockerfile", "image": "esim-iot-db-job"]
+                    ]
+                    
+                    for (def repo in repositories) {
+                        dir(repo.name) {
+                            def changes = currentBuild.description.contains("${repo.name}")
+                            def buildArgs = repo.buildArgs ? repo.buildArgs : ""
+                            
+                            if (changes) {
+                                echo "Changes detected in the ${repo.name} repo. Proceeding with the image build."
+                                try {
+                                    docker.build("${env.DOCKER_REPO}/${repo.image}:${env.IMAGE_TAG}", "-f ${repo.dockerfile}  ${buildArgs} .")
+                                    env."${repo.name}_BUILD_SUCCESS" = true
+                                } catch (Exception e) {
+                                    echo "Image build failed: ${e.getMessage()}"
+                                    env."${repo.name}_BUILD_SUCCESS" = false
+                                }
+                                env."${repo.name}_IMG_NAME" = "${env.DOCKER_REPO}/${repo.image}:${env.IMAGE_TAG}"
+                            } else {
+                                echo "No changes detected in the ${repo.name} repo. However, building the image."
+                                try {
+                                    docker.build("${env.DOCKER_REPO}/${repo.image}:${env.IMAGE_TAG}", "-f ${repo.dockerfile} ${buildArgs} .")
+                                    env."${repo.name}_BUILD_SUCCESS" = true
+                                } catch (Exception e) {
+                                    echo "Image build failed: ${e.getMessage()}"
+                                    env."${repo.name}_BUILD_SUCCESS" = false
+                                }
+                                env."${repo.name}_IMG_NAME" = "${env.DOCKER_REPO}/${repo.image}:${env.IMAGE_TAG}"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // stage("SCM Checkout") {
+        //     steps {
+        //         script {
+        //             def repositories = [
+        //                 ["name": "eSIM-IoT-frontend", "url": "https://gitlab.workz.com:31443/workz/eSIM-IoT-frontend.git"],
+        //                 ["name": "eSIM-IOT-API-BACKEND", "url": "https://gitlab.workz.com:31443/workz/esim-iot-backend.git"],
+        //                 ["name": "eSIM-IOT-CORE-SERVER", "url": "https://gitlab.workz.com:31443/workz/LPAe-IOT-Server.git"],
+        //                 ["name": "eSIM-IOT-DB-JOB", "url": "https://gitlab.workz.com:31443/workz/esim-iot-db-job.git"],
+        //                 ["name": "eSIM-IOT-API-WORKER", "url": "https://gitlab.workz.com:31443/workz/esim-iot-backend.git"],
+        //                 ["name": "eSIM-IOT-API-NGINX-BACKEND", "url": "https://gitlab.workz.com:31443/workz/esim-iot-backend.git"]
+        //             ]
+                    
+        //             for (def repo in repositories) {
+        //                 dir(repo.name) {
+        //                     def changes = checkout([$class: 'GitSCM', branches: [[name: '*/main']], userRemoteConfigs: [[credentialsId: 'gitlab-automation', url: repo.url]]]).GIT_COMMIT
+        //                     if (changes != null && changes != '') {
+        //                         currentBuild.description = "${repo.name} changes detected"
+        //                     }
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
+        // stage("Image Build ") {
+        //     steps {
+        //         script {
+        //             def repositories = [
+        //                 ["name": "eSIM-IoT-frontend", "dockerfile": "Dockerfile", "image": "esim-iot-nginx-frontend",  "buildArgs": "--build-arg ENV_BACKEND_API_URL=${env.ENV}"],
+        //                 ["name": "eSIM-IOT-API-BACKEND", "dockerfile": "Dockerfile", "image": "esim-iot-api-backend"],
+        //                 ["name": "eSIM-IOT-API-WORKER", "dockerfile": "Dockerfile_worker", "image": "esim-iot-api-worker"],
+        //                 ["name": "eSIM-IOT-API-NGINX-BACKEND", "dockerfile": "Dockerfile_nginx", "image": "esim-iot-api-nginx-backend"],
+        //                 ["name": "eSIM-IOT-CORE-SERVER", "dockerfile": "Dockerfile", "image": "esim-iot-core-server"],
+        //                 ["name": "eSIM-IOT-DB-JOB", "dockerfile": "Dockerfile", "image": "esim-iot-db-job"]
+        //             ]
+                    
+        //             for (def repo in repositories) {
+        //                 dir(repo.name) {
+        //                     def changes = currentBuild.description.contains("${repo.name}")
+        //                     def buildArgs = repo.buildArgs ? repo.buildArgs : ""
+        //                     if (changes) {
+        //                         echo "Changes detected in the ${repo.name} repo. Proceeding with the image build."
+        //                         try {
+        //                             docker.build("${env.DOCKER_REPO}/${repo.image}:${env.IMAGE_TAG}", "-f ${repo.dockerfile}  ${buildArgs} .")
+        //                             env."${repo.name}_BUILD_SUCCESS" = true
+        //                         } catch (Exception e) {
+        //                             echo "Image build failed: ${e.getMessage()}"
+        //                             env."${repo.name}_BUILD_SUCCESS" = false
+        //                         }
+        //                         env."${repo.name}_IMG_NAME" = "${env.DOCKER_REPO}/${repo.image}:${env.IMAGE_TAG}"
+        //                     } else {
+        //                         // echo "No changes detected in the ${repo.name} repo. Skipping the image build."
+        //                         echo "No changes detected in the ${repo.name} repo. However building the image."
+        //                         docker.build("${env.DOCKER_REPO}/${repo.image}:${env.IMAGE_TAG}", "-f ${repo.dockerfile} ${buildArgs} .")
+        //                         env."${repo.name}_BUILD_SUCCESS" = true
+        //                         // env."${repo.name}_IMG_NAME" = "${env.DOCKER_REPO}/${repo.image}:${env.GIT_BRANCH}-${env.PREVIOUS_BUILD_ID}"
+        //                         env."${repo.name}_IMG_NAME" = "${env.DOCKER_REPO}/${repo.image}:${env.IMAGE_TAG}"
+        //                     }
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
+        stage("Vulnerability Scan") {
+            steps {
+                script {
+                    def repositories = [
+                        ["name": "eSIM-IoT-frontend", "image": "esim-iot-nginx-frontend"],
+                        ["name": "eSIM-IOT-API-BACKEND", "image": "esim-iot-api-backend"],
+                        ["name": "eSIM-IOT-API-WORKER", "image": "esim-iot-api-worker"],
+                        ["name": "eSIM-IOT-API-NGINX-BACKEND", "image": "esim-iot-api-nginx-backend"],
+                        ["name": "eSIM-IOT-CORE-SERVER", "image": "esim-iot-core-server"],
+                        ["name": "eSIM-IOT-DB-JOB", "image": "esim-iot-db-job"]
+                    ]
+                    
+                    for (def repo in repositories) {
+                        if (env."${repo.name}_BUILD_SUCCESS" == 'true') {
+                            script {
+                                gv.trivyScan("${env."${repo.name}_IMG_NAME"}", repo.name)
+                                def vulnerabilities = readFile("${repo.name}.json").trim()
+                                if (vulnerabilities.isEmpty()) {
+                                    echo "No vulnerabilities found. Proceeding to push the image."
+                                } else {
+                                    echo "Image has vulnerabilities. Skipping for now."
+                                    def emailSubject = "eSIM-IOT-Production Jenkins Job ${env.BUILD_ID} Vulnerability Report for ${env."${repo.name}_IMG_NAME"}"
+                                    def emailBody = """
+                                    <html>
+                                    <head>
+                                    <style>
+                                        body {
+                                            font-family: Arial, sans-serif;
+                                            margin: 20px;
+                                        }
+                                        h1 {
+                                            color: #333;
+                                        }
+                                        pre {
+                                            background-color: #f5f5f5;
+                                            padding: 10px;
+                                            border: 1px solid #ccc;
+                                            overflow: auto;
+                                        }
+                                    </style>
+                                    </head>
+                                    <body>
+                                        Hello,<br><br>
+                                        There are a few vulnerabilities detected on this container image "${env."${repo.name}_IMG_NAME"}" during the build.
+
+                                        Please have a look and fix the reported VA before proceeding with the next stage.
+
+                                        Attached are the reports for your reference.<br><br>
+                                        Jenkins
+                                    </body>
+                                    </html>
+                                    """
+                                    
+                                    emailext(
+                                        subject: emailSubject,
+                                        body: emailBody,
+                                        to: 'it.support@workz.com, it.dev@workz.com', 
+                                        mimeType: 'text/html',
+                                        attachmentsPattern: "${repo.name}.html"
+                                    )
+                                    env.VULNERABILITIES = vulnerabilities    
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        stage("Image Push") {
+            steps {
+                script {
+                    def repositories = [
+                        ["name": "eSIM-IoT-frontend", "image": "esim-iot-nginx-frontend"],
+                        ["name": "eSIM-IOT-API-BACKEND", "image": "esim-iot-api-backend"],
+                        ["name": "eSIM-IOT-API-WORKER", "image": "esim-iot-api-worker"],
+                        ["name": "eSIM-IOT-API-NGINX-BACKEND", "image": "esim-iot-api-nginx-backend"],
+                        ["name": "eSIM-IOT-CORE-SERVER", "image": "esim-iot-core-server"],
+                        ["name": "eSIM-IOT-DB-JOB", "image": "esim-iot-db-job"]
+                    ]
+                    
+                    for (def repo in repositories) {
+                        if (env."${repo.name}_BUILD_SUCCESS" == 'true') {
+                            echo "Pushing ${repo.name} image to Nexus"
+                            gv.push_image(repo.image)
+                        } else {
+                            echo "No ${repo.name} image to push"
+                        }
+                    }
+                }
+            }
+        }
+        stage('Send Approval Email') {
+            steps {
+                script {
+                    def emailSubject = "eSIM-IOT-Production Deployment Approval Request"
+                    def emailBody = """
+                        Hello,<br><br>
+
+                        We request your approval for the deployment of the latest changes to ${env.GIT_BRANCH}.
+
+                        Please click the link below to approve or reject the deployment: <br><br>
+
+                        <a href='${BUILD_URL}input'>Click here to approve or reject</a> <br><br>
+                        IT Team
+                    """
+
+                    emailext(
+                        subject: emailSubject,
+                        body: emailBody,
+                        to: 'saji.krishnan@workz.com',
+                        mimeType: 'text/html'
+                    )
+                }
+            }
+        }
+        stage('Wait for Approval') {
+            steps {
+                script {
+                    def approval = input(
+                        id: 'deploymentApproval',
+                        message: 'Please approve or reject the deployment:',
+                        parameters: [
+                            choice(name: 'APPROVAL', choices: 'Approve\nReject', description: 'Approve or Reject')
+                        ]
+                    )
+
+                    if (approval == 'Approve') {
+                        resultIsApproved = true
+                    } 
+                    else {
+                        resultIsApproved = false
+                        def emailSubject = "Jenkins Job eSIM-IOT-${env.GIT_BRANCH} ${env.BUILD_ID} "
+                        def emailBody = """
+                        <html>
+                        <head>
+                        <style>
+                            body {
+                                font-family: Arial, sans-serif;
+                                margin: 20px;
+                            }
+                            h1 {
+                                color: #333;
+                            }
+                            pre {
+                                background-color: #f5f5f5;
+                                padding: 10px;
+                                border: 1px solid #ccc;
+                                overflow: auto;
+                            }
+                        </style>
+                        </head>
+                        <body>
+                            <h1>Ohoo!<br><br> </h1>
+                            Hello All,<br><br> 
+                            The Jenkins Job ${env.BUILD_ID} for eSIM-IOT-${env.GIT_BRANCH} has been rejected by the approver.<br><br> 
+                            IT Team
+                        </body>
+                        </html>
+                        """
+                        
+                        emailext(
+                            subject: emailSubject,
+                            body: emailBody,
+                            to: 'it.support@workz.com,  it.dev@workz.com', 
+                            mimeType: 'text/html',
+                            // attachmentsPattern: '**/*.html'
+                        )
+                    }
+                }
+            }
+        }
+        stage("Update Helmchart"){
+            when{
+            expression { resultIsApproved }
+            }
+            steps{
+            script{
+                git branch: 'main', credentialsId: 'gitlab-automation', url: 'https://gitlab.workz.com:31443/workz/esim-deployment'
+                def values = readYaml file: "custom-values.yaml"
+                def repositories = [
+                ["name": "esim-iot-nginx-frontend", "image": "esim-iot-nginx-frontend"],
+                ["name": "esim-iot-api-backend", "image": "esim-iot-api-backend"],
+                ["name": "esim-iot-worker-backend", "image": "esim-iot-api-worker"],
+                ["name": "esim-iot-nginx-backend", "image": "esim-iot-api-nginx-backend"],
+                ["name": "esim-iot-core-server", "image": "esim-iot-core-server"],
+                ["name": "dbjob", "image": "esim-iot-db-job"]
+                ]
+                for (def repo in repositories) {
+                if (values[repo.name]) {
+                    values[repo.name]['image']['tag'] = "${env.IMAGE_TAG}"
+                }
+                }
+                writeYaml file: 'custom-values.yaml', data: values, overwrite: true
+            }
+            }
+        }
+        stage("Deploy Helm Chart"){
+            when{
+                expression { resultIsApproved }
+            }
+            steps{
+                script{
+                    gv.Deploy()
+                }
+            }
+            post{
+                success{
+                    script{
+                        def emailSubject = "Jenkins Job eSIM-IOT-Production ${env.BUILD_ID} Deployment"
+                        def emailBody = """
+                        <html>
+                        <head>
+                        <style>
+                            body {
+                                font-family: Arial, sans-serif;
+                                margin: 20px;
+                            }
+                            h1 {
+                                color: #333;
+                            }
+                            pre {
+                                background-color: #f5f5f5;
+                                padding: 10px;
+                                border: 1px solid #ccc;
+                                overflow: auto;
+                            }
+                        </style>
+                        </head>
+                        <body>
+                            <h1>Success!<br><br></h1>
+                            Hello All,<br><br>
+                            The Jenkins Job ${env.BUILD_ID} for eSIM-IOT-PRODUCTION has been successfully deployed to the ${env.GIT_BRANCH} environment.<br><br>
+                            Please note the following access points:<br>
+                            - <a href='https://eim.workz.com:10444'>API Access</a><br>
+                            - <a href='https://eim.workz.com:15001'>Proxy Access</a><br>
+                            - <a href='https://eim.workz.com:10443'>Platform Access</a><br><br>
+                            Thank you,<br>
+                            IT Team<br><br>
+                        </body>
+                        </html>
+                        """
+                        emailext(
+                            subject: emailSubject,
+                            body: emailBody,
+                            to: 'it.support@workz.com, it.dev@workz.com, platforms@workz.com', 
+                            mimeType: 'text/html',
+                            // attachmentsPattern: '**/*.html'
+                        )
+                    }
+                }
+                failure{
+                    script{
+                        def emailSubject = "Jenkins Job eSIM-IOT-Production -${env.BUILD_ID} Deployment"
+                        def emailBody = """
+                        <html>
+                        <head>
+                        <style>
+                            body {
+                                font-family: Arial, sans-serif;
+                                margin: 20px;
+                            }
+                            h1 {
+                                color: #333;
+                            }
+                            pre {
+                                background-color: #f5f5f5;
+                                padding: 10px;
+                                border: 1px solid #ccc;
+                                overflow: auto;
+                            }
+                        </style>
+                        </head>
+                        <body>
+                            <h1>Failed!<br><br>  </h1>
+                            Hello All,<br><br> 
+                            The deployment of Jenkins Job ${env.BUILD_ID} for eSIM-IOT-Production has failed on the ${env.GIT_BRANCH} environment.<br><br> 
+                            IT Team
+                        </body>
+                        </html>
+                        """
+                        
+                        emailext(
+                            subject: emailSubject,
+                            body: emailBody,
+                            to: 'it.support@workz.com, it.dev@workz.com', 
+                            mimeType: 'text/html',
+                            attachLog: true
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
