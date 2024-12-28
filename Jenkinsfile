@@ -81,6 +81,8 @@ pipeline {
                     env.SITE_ORDER = selectedOrder.join(',')
 
                     if (approval == 'Approve') {
+                        env.DEPLOY_SITE_ORDER = approval.SITE_ORDER
+                        echo "User selected DEPLOY_SITE_ORDER: ${env.DEPLOY_SITE_ORDER}"
                         resultIsApproved = true
                     } else {
                         resultIsApproved = false
