@@ -56,7 +56,7 @@ pipeline {
                     emailext(
                         subject: emailSubject,
                         body: emailBody,
-                        to: 'it.support@workz.com',
+                        to: 'devopsvilayil@gmail.com',
                         mimeType: 'text/html'
                     )
                 }
