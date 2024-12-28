@@ -256,7 +256,7 @@ pipeline {
                                 subject: "Deployment to ${site} Completed",
                                 body: "Deployment to ${site} is complete. Would you like to proceed with the next site or cancel?",
                                 to: 'devops@example.com, manager@example.com',
-                                replyTo: 'team@example.com"
+                                replyTo: 'team@example.com'
                             )
                             def action = input message: 'Proceed with next site?', parameters: [choice(name: 'ACTION', choices: 'Proceed\nCancel', description: 'Next Action')]
                             if (action == 'Cancel') {
