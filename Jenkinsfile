@@ -1,4 +1,6 @@
+// Prodution pipeline
 def gv
+
 pipeline {
     agent any
     parameters {
@@ -218,6 +220,52 @@ pipeline {
                                 }
                             }
                         }
+                    }
+                }
+            }
+        }
+        stage('Deploy to Selected Site') {
+            steps {
+                script {
+                    emailext(
+                        subject: "Deployment Selection",
+                        body: "Please choose a location to deploy first: Dubai, US, or France.",
+                        to: 'devops@example.com, manager@example.com',
+                        replyTo: 'team@example.com'
+                    )
+
+                    def selectedSite = input message: 'Select deployment site:', parameters: [choice(name: 'SITE', choices: 'Dubai\nUS\nFrance', description: 'Deployment Site')]
+
+                    sh "ansible-playbook ${ANSIBLE_PLAYBOOK} -e site=${selectedSite} -e image_tag=${IMAGE_TAG}"
+
+                    emailext(
+                        subject: "Deployment to ${selectedSite} Completed",
+                        body: "Deployment to ${selectedSite} is complete. Would you like to proceed with the next site or cancel?",
+                        to: 'devops@example.com, manager@example.com',
+                        replyTo: 'team@example.com'
+                    )
+
+                    def nextStep = input message: 'Proceed with next site?', parameters: [choice(name: 'ACTION', choices: 'Proceed\nCancel', description: 'Next Action')]
+
+                    if (nextStep == 'Proceed') {
+                        def remainingSites = ["Dubai", "US", "France"].findAll { it != selectedSite }
+
+                        for (site in remainingSites) {
+                            sh "ansible-playbook ${ANSIBLE_PLAYBOOK} -e site=${site} -e image_tag=${IMAGE_TAG}"
+                            emailext(
+                                subject: "Deployment to ${site} Completed",
+                                body: "Deployment to ${site} is complete. Would you like to proceed with the next site or cancel?",
+                                to: 'devops@example.com, manager@example.com',
+                                replyTo: 'team@example.com"
+                            )
+                            def action = input message: 'Proceed with next site?', parameters: [choice(name: 'ACTION', choices: 'Proceed\nCancel', description: 'Next Action')]
+                            if (action == 'Cancel') {
+                                echo "Deployment process canceled."
+                                break
+                            }
+                        }
+                    } else {
+                        echo "Deployment process canceled by user."
                     }
                 }
             }
