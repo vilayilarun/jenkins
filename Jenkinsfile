@@ -16,6 +16,7 @@ pipeline {
         REPO_DIR = "${env.WORKSPACE}"
         HELM_CHART = "frontend-helm-chart"
         ANSIBLE_PLAYBOOK = "deploy.yml"
+        DEPLOY_SITE_ORDER = 'Dubai,US,France'
     }  
     stages {
         stage('Check for Running Builds') {
