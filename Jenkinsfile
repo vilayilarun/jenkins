@@ -77,8 +77,8 @@ pipeline {
                     )
 
                     // Store the selected deployment order
-                    def selectedOrder = approval?.DEPLOY_SITE_ORDER?.split(',')?.collect { it.trim() }
-                    env.SITE_ORDER = selectedOrder.join(',')
+                    // def selectedOrder = approval?.DEPLOY_SITE_ORDER?.split(',')?.collect { it.trim() }
+                    // env.SITE_ORDER = selectedOrder.join(',')
 
                     if (approval == 'Approve') {
                         env.DEPLOY_SITE_ORDER = approval.SITE_ORDER
