@@ -1,0 +1,39 @@
+---
+- name: Deploy Application to France
+  hosts: az-client
+  become: true
+
+  vars:
+    helm_chart_name: esim-iot-version
+    helm_chart_url: nexus:5000/esim-iot-version
+    helm_chart_path: /tmp/esim-iot-version.tgz
+    helm_values_file: /tmp/france.yaml
+    namespace: esim-iot
+    kubernetes_context: france-context
+
+  tasks:
+    - name: Set Kubernetes context to France
+      shell: kubectl config use-context {{ kubernetes_context }}
+      args:
+        executable: /bin/bash
+
+    - name: Download Helm chart from Nexus repository
+      shell: curl -o {{ helm_chart_path }} {{ helm_chart_url }}
+      args:
+        executable: /bin/bash
+
+    - name: Copy custom values file to Az-client
+      copy:
+        src: "{{ helm_values_file }}"
+        dest: "{{ helm_values_file }}"
+        owner: root
+        group: root
+        mode: 0644
+
+    - name: Deploy Helm chart to France cluster
+      shell: |
+        helm upgrade --install esim-iot {{ helm_chart_path }} \
+          -f {{ helm_values_file }} \
+          -n {{ namespace }}
+      args:
+        executable: /bin/bash
