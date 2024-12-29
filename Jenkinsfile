@@ -227,49 +227,74 @@ pipeline {
         stage('Deploy to Selected Site') {
             steps {
                 script {
-                    emailext(
-                        subject: "Deployment Selection",
-                        body: "Please choose a location to deploy first: Dubai, US, or France.",
-                        to: 'devops@example.com, manager@example.com',
-                        replyTo: 'team@example.com'
-                    )
+                    // List of all sites
+                    def allSites = ["Dubai", "US", "France"]
+                    def deployedSites = []
+                    
+                    // Define customer email addresses for each site
+                    def customerEmails = [
+                        "Dubai" : "customer.dubai@example.com",
+                        "US" : "customer.us@example.com",
+                        "France" : "customer.france@example.com"
+                    ]
 
-                    def selectedSite = input message: 'Select deployment site:', parameters: [choice(name: 'SITE', choices: 'Dubai\nUS\nFrance', description: 'Deployment Site')]
+                    while (deployedSites.size() < allSites.size()) {
+                        // Calculate remaining sites for selection by excluding deployed sites
+                        def remainingSites = allSites - deployedSites
 
-                    sh "ansible-playbook ${ANSIBLE_PLAYBOOK} -e site=${selectedSite} -e image_tag=${IMAGE_TAG}"
+                        // Notify stakeholders for site selection
+                        emailext(
+                            subject: "Deployment Selection",
+                            body: "Please choose a location to deploy next: ${remainingSites.join(', ')}.",
+                            to: 'devops@example.com, manager@example.com',
+                            replyTo: 'team@example.com'
+                        )
 
-                    emailext(
-                        subject: "Deployment to ${selectedSite} Completed",
-                        body: "Deployment to ${selectedSite} is complete. Would you like to proceed with the next site or cancel?",
-                        to: 'devops@example.com, manager@example.com',
-                        replyTo: 'team@example.com'
-                    )
+                        // User input to select the site, excluding already deployed sites
+                        def selectedSite = input message: 'Select deployment site:', parameters: [
+                            choice(name: 'SITE', choices: remainingSites.join('\n'), description: 'Deployment Site')
+                        ]
 
-                    def nextStep = input message: 'Proceed with next site?', parameters: [choice(name: 'ACTION', choices: 'Proceed\nCancel', description: 'Next Action')]
+                        // Call the Groovy script for deployment
+                        gv.Deploy(selectedSite)
 
-                    if (nextStep == 'Proceed') {
-                        def remainingSites = ["Dubai", "US", "France"].findAll { it != selectedSite }
+                        // Notify stakeholders after deployment
+                        emailext(
+                            subject: "Deployment to ${selectedSite} Completed",
+                            body: "Deployment to ${selectedSite} is complete. Would you like to proceed with the next site or cancel?",
+                            to: 'devops@example.com, manager@example.com',
+                            replyTo: 'team@example.com'
+                        )
 
-                        for (site in remainingSites) {
-                            sh "ansible-playbook ${ANSIBLE_PLAYBOOK} -e site=${site} -e image_tag=${IMAGE_TAG}"
-                            emailext(
-                                subject: "Deployment to ${site} Completed",
-                                body: "Deployment to ${site} is complete. Would you like to proceed with the next site or cancel?",
-                                to: 'devops@example.com, manager@example.com',
-                                replyTo: 'team@example.com'
-                            )
-                            def action = input message: 'Proceed with next site?', parameters: [choice(name: 'ACTION', choices: 'Proceed\nCancel', description: 'Next Action')]
-                            if (action == 'Cancel') {
-                                echo "Deployment process canceled."
+                        // Send email notification to customer for the selected site
+                        emailext(
+                            subject: "Deployment to ${selectedSite} Completed",
+                            body: "Dear Customer, \n\nThe deployment to ${selectedSite} has been successfully completed. Please check your application for updates.",
+                            to: customerEmails[selectedSite],
+                            replyTo: 'team@example.com'
+                        )
+
+                        // Add the deployed site to the list of deployed sites
+                        deployedSites << selectedSite
+
+                        // If there are remaining sites, ask the user for the next action
+                        if (deployedSites.size() < allSites.size()) {
+                            def nextStep = input message: 'Proceed with next site?', parameters: [
+                                choice(name: 'ACTION', choices: 'Proceed\nCancel', description: 'Next Action')
+                            ]
+
+                            if (nextStep == 'Cancel') {
+                                echo "Deployment process canceled by user."
                                 break
                             }
+                        } else {
+                            echo "All sites have been successfully deployed."
                         }
-                    } else {
-                        echo "Deployment process canceled by user."
                     }
                 }
             }
         }
+
 
     }
    

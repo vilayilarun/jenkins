@@ -66,25 +66,53 @@ def execCommand(command) {
 }
 
 
-def Deploy() {
+def Deploy(selectedSite) {
+    // Define site-specific configurations
+    def playbooks = [
+        "Dubai": "dubai-playbook.yaml",
+        "US": "us-playbook.yaml",
+        "France": "france-playbook.yaml"
+    ]
 
-    def gclodLoginCommand = ["gcloud", "config", "set", "project", "workz-eim"]
-    executeShellCommand(gclodLoginCommand)
+    def helmValues = [
+        "Dubai": "dubai.yaml",
+        "US": "us.yaml",
+        "France": "france.yaml"
+    ]
 
-    // def tarCommand = ["tar", "-cvf", "${WORKSPACE}/custom-values.yaml.tar", "${WORKSPACE}/custom-values.yaml"]
-    // executeShellCommand(tarCommand)
+    // Retrieve configurations based on the selected site
+    def ansiblePlaybook = playbooks[selectedSite]
+    def customValuesFile = helmValues[selectedSite]
 
-    def helmCommand = ["gcloud",  "compute", "scp", "--zone=europe-west3-b", "${WORKSPACE}/eSIM-3.0.0.tgz" , "app-cluster-bastion:/tmp"]
-    executeShellCommand(helmCommand)
+    if (!ansiblePlaybook || !customValuesFile) {
+        error("Invalid site selection: ${selectedSite}. No playbook or Helm values file found.")
+    }
 
-    def helmCopy = ["gcloud",  "compute", "scp", "--zone=europe-west3-b", "${WORKSPACE}/custom-values.yaml" , "app-cluster-bastion:/tmp"]
-    executeShellCommand(helmCopy)
+    echo "Starting deployment for ${selectedSite} using ${ansiblePlaybook} and ${customValuesFile}."
 
-    // def untarCommand = ["gcloud", "compute", "ssh", "app-cluster-bastion", "--zone=europe-west3-b", "--command=sudo tar -xvf /tmp/custom-values.yaml.tar"]
-    // executeShellCommand(untarCommand)
+    // Login to GCP
+    def gcloudLoginCommand = ["gcloud", "config", "set", "project", "workz-eim"]
+    executeShellCommand(gcloudLoginCommand)
 
-    def deployCommand = ["gcloud", "compute", "ssh", "app-cluster-bastion", "--zone=europe-west3-b", "--command=sudo helm upgrade esim-iot /tmp/eSIM-3.0.0.tgz -f /tmp/custom-values.yaml -n esim-iot"]
-    executeShellCommand(deployCommand)
+    // Copy Helm chart and custom values file to the bastion host
+    def helmChartCopyCommand = ["gcloud", "compute", "scp", "--zone=europe-west3-b", "${WORKSPACE}/eSIM-3.0.0.tgz", "app-cluster-bastion:/tmp"]
+    executeShellCommand(helmChartCopyCommand)
+
+    def helmValuesCopyCommand = ["gcloud", "compute", "scp", "--zone=europe-west3-b", "${WORKSPACE}/${customValuesFile}", "app-cluster-bastion:/tmp"]
+    executeShellCommand(helmValuesCopyCommand)
+
+    // Run Ansible playbook for the selected site
+    def ansibleCommand = ["ansible-playbook", "${WORKSPACE}/${ansiblePlaybook}", "-e", "image_tag=${imageTag}"]
+    executeShellCommand(ansibleCommand)
+
+    // Deploy Helm release using the custom values file
+    def helmDeployCommand = [
+        "gcloud", "compute", "ssh", "app-cluster-bastion", "--zone=europe-west3-b", 
+        "--command=sudo helm upgrade esim-iot /tmp/eSIM-3.0.0.tgz -f /tmp/${customValuesFile} -n esim-iot"
+    ]
+    executeShellCommand(helmDeployCommand)
+
+    echo "Deployment for ${selectedSite} completed successfully."
 }
 
 // def deployCommand(command) {
