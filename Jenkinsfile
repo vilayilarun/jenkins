@@ -224,6 +224,74 @@ pipeline {
                 }
             }
         }
+        stage("Vulnerability Scan") {
+            steps {
+                script {
+                    def repositories = [
+                        ["name": "eSIM-IoT-frontend", "image": "esim-iot-nginx-frontend"],
+                        ["name": "eSIM-IOT-API-BACKEND", "image": "esim-iot-api-backend"],
+                        ["name": "eSIM-IOT-API-WORKER", "image": "esim-iot-api-worker"],
+                        ["name": "eSIM-IOT-API-NGINX-BACKEND", "image": "esim-iot-api-nginx-backend"],
+                        ["name": "eSIM-IOT-CORE-SERVER", "image": "esim-iot-core-server"],
+                        ["name": "eSIM-IOT-DB-JOB", "image": "esim-iot-db-job"]
+                    ]
+                    
+                    for (def repo in repositories) {
+                        if (env."${repo.name}_BUILD_SUCCESS" == 'true') {
+                            script {
+                                gv.trivyScan("${env."${repo.name}_IMG_NAME"}", repo.name)
+                                def vulnerabilities = readFile("${repo.name}.json").trim()
+                                if (vulnerabilities.isEmpty()) {
+                                    echo "No vulnerabilities found. Proceeding to push the image."
+                                } else {
+                                    echo "Image has vulnerabilities. Skipping for now."
+                                    def emailSubject = "eSIM-IOT-Production Jenkins Job ${env.BUILD_ID} Vulnerability Report for ${env."${repo.name}_IMG_NAME"}"
+                                    def emailBody = """
+                                    <html>
+                                    <head>
+                                    <style>
+                                        body {
+                                            font-family: Arial, sans-serif;
+                                            margin: 20px;
+                                        }
+                                        h1 {
+                                            color: #333;
+                                        }
+                                        pre {
+                                            background-color: #f5f5f5;
+                                            padding: 10px;
+                                            border: 1px solid #ccc;
+                                            overflow: auto;
+                                        }
+                                    </style>
+                                    </head>
+                                    <body>
+                                        Hello,<br><br>
+                                        There are a few vulnerabilities detected on this container image "${env."${repo.name}_IMG_NAME"}" during the build.
+
+                                        Please have a look and fix the reported VA before proceeding with the next stage.
+
+                                        Attached are the reports for your reference.<br><br>
+                                        Jenkins
+                                    </body>
+                                    </html>
+                                    """
+                                    
+                                    emailext(
+                                        subject: emailSubject,
+                                        body: emailBody,
+                                        to: 'it.support@workz.com, it.dev@workz.com', 
+                                        mimeType: 'text/html',
+                                        attachmentsPattern: "${repo.name}.html"
+                                    )
+                                    env.VULNERABILITIES = vulnerabilities    
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         stage('Deploy to Selected Site') {
             steps {
                 script {
