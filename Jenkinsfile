@@ -125,9 +125,9 @@ pipeline {
 
 
         stage("Load Groovy script") {
-            when{
-                expression { resultIsApproved }
-            }
+            // when{
+            //     expression { resultIsApproved }
+            // }
             steps {
                 script {
                     echo "Loading the groovy script"
