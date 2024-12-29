@@ -209,3 +209,28 @@ def executeShellCommand(command, workingDir = null) {
 }
 
 return this
+
+
+def Deploy(selectedSite) {
+    def playbookPath = "/path/to/advanced-playbook.yaml"
+    def gcloudZone = "europe-west3-b"
+    def bastionHost = "app-cluster-bastion"
+
+    // SCP custom values file to bastion
+    def helmCopyCommand = [
+        "gcloud", "compute", "scp",
+        "--zone=${gcloudZone}",
+        "${WORKSPACE}/${selectedSite.toLowerCase()}.yaml",
+        "${bastionHost}:/tmp"
+    ]
+    executeShellCommand(helmCopyCommand)
+
+    // Execute playbook
+    def playbookCommand = [
+        "gcloud", "compute", "ssh",
+        bastionHost,
+        "--zone=${gcloudZone}",
+        "--command=sudo ansible-playbook ${playbookPath} -e site=${selectedSite.toLowerCase()}"
+    ]
+    executeShellCommand(playbookCommand)
+}

@@ -1,0 +1,99 @@
+---
+- name: Advanced Deployment Playbook
+  hosts: az-client
+  become: true
+
+  vars:
+    sites:
+      dubai:
+        context: dubai-context
+        values_file: /tmp/dubai.yaml
+      us:
+        context: us-context
+        values_file: /tmp/us.yaml
+      france:
+        context: france-context
+        values_file: /tmp/france.yaml
+    helm_chart_name: esim-iot-version
+    helm_chart_url: nexus:5000/esim-iot-version
+    helm_chart_path: /tmp/esim-iot-version.tgz
+    namespace: esim-iot
+
+  tasks:
+    - name: Validate site variable
+      fail:
+        msg: "Site '{{ site }}' is invalid. Must be one of: {{ sites.keys() | join(', ') }}"
+      when: site not in sites
+
+    - name: Log selected site
+      debug:
+        msg: "Deploying to site: {{ site }}"
+
+    - name: Set Kubernetes context for selected site
+      shell: kubectl config use-context {{ sites[site].context }}
+      args:
+        executable: /bin/bash
+      register: context_result
+      retries: 3
+      delay: 5
+      until: context_result.rc == 0
+
+    - name: Ensure Helm chart path is clean
+      file:
+        path: "{{ helm_chart_path }}"
+        state: absent
+
+    - name: Download Helm chart from Nexus repository
+      shell: curl -o {{ helm_chart_path }} {{ helm_chart_url }}
+      args:
+        executable: /bin/bash
+      register: download_result
+      retries: 3
+      delay: 5
+      until: download_result.rc == 0
+
+    - name: Verify Helm chart download
+      stat:
+        path: "{{ helm_chart_path }}"
+      register: chart_stat
+    - name: Fail if Helm chart download failed
+      fail:
+        msg: "Helm chart {{ helm_chart_name }} was not downloaded successfully."
+      when: not chart_stat.stat.exists
+
+    - name: Copy custom values file to Az-client
+      copy:
+        src: "{{ sites[site].values_file }}"
+        dest: "{{ sites[site].values_file }}"
+        owner: root
+        group: root
+        mode: 0644
+
+    - name: Deploy Helm chart to Kubernetes cluster
+      shell: |
+        helm upgrade --install esim-iot {{ helm_chart_path }} \
+          -f {{ sites[site].values_file }} \
+          -n {{ namespace }}
+      args:
+        executable: /bin/bash
+      register: helm_result
+      retries: 3
+      delay: 5
+      until: helm_result.rc == 0
+
+    - name: Wait for pods to be ready
+      shell: |
+        kubectl wait --for=condition=ready pod \
+          -l app=esim-iot -n {{ namespace }} --timeout=300s
+      args:
+        executable: /bin/bash
+      register: wait_result
+
+    - name: Check if pods are ready
+      fail:
+        msg: "Deployment failed, pods are not ready."
+      when: wait_result.rc != 0
+
+    - name: Log deployment success
+      debug:
+        msg: "Deployment to {{ site }} completed successfully!"
